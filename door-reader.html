@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0e0e0e">
+  <title>Face-Key Door Reader</title>
+  <style>
+    @font-face{font-family:Fraunces;font-style:normal;font-weight:400 700;font-display:swap;src:url("vendor/fonts/Fraunces-latin.woff2") format("woff2")}
+    @font-face{font-family:Outfit;font-style:normal;font-weight:300 700;font-display:swap;src:url("vendor/fonts/Outfit-latin.woff2") format("woff2")}
+    :root{--bg:#0e0e0e;--surface:#171717;--text:#f6f1e7;--accent:#e0c78a;--ok:#8fb58a;--danger:#c45c4a;--muted:#aaa49a;--font-display:Fraunces,Georgia,serif;--font-body:Outfit,system-ui,sans-serif}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:var(--font-body)}
+    button,input{font:inherit}.setup{min-height:100svh;display:grid;place-items:center;padding:24px}.setup-card{width:min(100%,460px);padding:30px;background:var(--surface);border:1px solid #302b20;border-radius:24px}
+    h1{font:500 2.6rem/1.05 var(--font-display);margin:0 0 12px}.setup-card p{color:var(--muted);margin:0 0 28px}.setup-card label{display:block;margin:0 0 9px;color:var(--accent);font-size:.95rem}
+    input{width:100%;height:58px;padding:0 16px;color:var(--text);background:#101010;border:1px solid #403a2b;border-radius:12px;font-size:1.2rem;outline:none}input:focus{border-color:var(--accent)}
+    .start{width:100%;height:64px;margin-top:18px;border:0;border-radius:14px;background:var(--accent);color:#14120c;font-weight:700;font-size:1.15rem;cursor:pointer}.message{min-height:24px;margin-top:15px;color:var(--danger);line-height:1.4}
+    .reader{position:fixed;inset:0;display:none;place-items:center;text-align:center;overflow:hidden;padding:26px}.room-corner{position:absolute;top:max(22px,env(safe-area-inset-top));right:22px;font-size:1.2rem;color:var(--muted);cursor:pointer;user-select:none}
+    .idle{display:flex;flex-direction:column;align-items:center;gap:26px}.ring{width:min(52vw,220px);aspect-ratio:1;border:3px solid var(--accent);border-radius:50%;box-shadow:0 0 0 12px #e0c78a12,0 0 42px #e0c78a26;animation:pulse 2s ease-in-out infinite;display:grid;place-items:center;font-size:4rem;color:var(--accent)}
+    @keyframes pulse{50%{transform:scale(1.055);box-shadow:0 0 0 21px #e0c78a08,0 0 60px #e0c78a38}}
+    .idle-title{font:500 clamp(2.2rem,8vw,4.5rem)/1.05 var(--font-display)}.idle-sub{color:var(--muted);font-size:1.05rem}
+    .result{display:none;flex-direction:column;align-items:center;gap:18px}.result-title{font:500 clamp(2.8rem,10vw,5.4rem)/1 var(--font-display)}.result.ok{color:var(--ok)}.result.denied{color:var(--danger)}.result.info{color:var(--accent)}
+    .lock{width:104px;height:120px;position:relative;color:currentColor}.lock-body{position:absolute;bottom:0;left:4px;width:96px;height:72px;border:5px solid currentColor;border-radius:16px}.lock-shackle{position:absolute;left:25px;top:0;width:54px;height:61px;border:5px solid currentColor;border-bottom:0;border-radius:28px 28px 0 0;transform-origin:70% 90%;transition:transform .45s ease}.result.ok .lock-shackle{transform:rotate(32deg) translate(15px,-8px)}.keyhole{position:absolute;left:46px;bottom:22px;width:13px;height:23px;background:currentColor;border-radius:9px}
+    .debug{display:none;position:absolute;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom));padding:12px 14px;text-align:left;font:12px/1.55 ui-monospace,monospace;color:#d8d2c6;background:#111e;border:1px solid #544a31;border-radius:12px;word-break:break-word}.debug strong{color:var(--accent)}
+    body.active .reader{display:grid}body.active .setup{display:none}body.active .idle{display:flex}
+    @media(max-height:500px){.ring{width:130px}.idle{gap:14px}.lock{transform:scale(.8);margin:-10px}}
+  </style>
+</head>
+<body>
+  <main class="setup" id="setup">
+    <section class="setup-card">
+      <h1>Door Reader</h1><p>Connect this phone to the room access service.</p>
+      <form id="setupForm"><label for="doorRoom">Door room number</label><input id="doorRoom" inputmode="numeric" autocomplete="off" placeholder="204" required>
+      <button class="start" type="submit">Start Door Reader</button></form><div class="message" id="setupMessage" role="status"></div>
+    </section>
+  </main>
+  <main class="reader" aria-live="polite">
+    <div class="room-corner" id="roomCorner">Door <span id="roomLabel"></span></div>
+    <section class="idle" id="idle"><div class="ring" aria-hidden="true">⌁</div><div class="idle-title">Tap phone to unlock</div><div class="idle-sub">Hold the guest phone near the reader</div></section>
+    <section class="result" id="result"><div class="lock" aria-hidden="true"><div class="lock-shackle"></div><div class="lock-body"></div><div class="keyhole"></div></div><div class="result-title" id="resultTitle"></div></section>
+    <aside class="debug" id="debug" aria-label="NFC diagnostics"><strong>Reader diagnostics</strong><br>NDEFReader: <span id="dSupported"></span><br>Last event: <span id="dEvent">—</span><br>Record types: <span id="dTypes">—</span><br>Serial: <span id="dSerial">—</span><br>Token suffix: <span id="dSuffix">—</span></aside>
+  </main>
+  <script src="vendor/supabase/supabase.js"></script>
+  <script>
+    'use strict';
+    const SUPABASE_URL='https://qwrrpzzsjpnemxfasxcn.supabase.co';
+    const SUPABASE_ANON_KEY='sb_publishable_OF-LjPkDTMCMKrctyPj_1A_2j16blG0';
+    const client=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+    const $=id=>document.getElementById(id);
+    let doorRoom='', reader=null, lockHandle=null, busy=false, returnTimer=null, debugTaps=0, tapReset=null;
+    const lastRead=new Map();
+    $('doorRoom').value=localStorage.getItem('facekey-door-room')||'';
+    $('dSupported').textContent=('NDEFReader' in window)?'available':'unavailable';
+
+    function setIdle(){clearTimeout(returnTimer);$('result').style.display='none';$('idle').style.display='flex';busy=false}
+    function playTone(frequency,duration,success){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const ctx=new C(),osc=ctx.createOscillator(),gain=ctx.createGain();osc.type='sine';osc.frequency.value=frequency;gain.gain.setValueAtTime(.16,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+duration);osc.connect(gain);gain.connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+duration);osc.onended=()=>ctx.close()}catch(_){}}
+    function showResult(kind,title,ms){clearTimeout(returnTimer);$('idle').style.display='none';const box=$('result');box.className='result '+kind;box.style.display='flex';$('resultTitle').textContent=title;returnTimer=setTimeout(setIdle,ms)}
+    async function requestWakeLock(){if(!('wakeLock' in navigator))return;try{lockHandle=await navigator.wakeLock.request('screen');lockHandle.addEventListener('release',()=>{lockHandle=null})}catch(_){}}
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&document.body.classList.contains('active'))requestWakeLock()});
+    async function startReader(){
+      const room=$('doorRoom').value.trim();if(!room){$('setupMessage').textContent='Enter a door room number.';return}
+      localStorage.setItem('facekey-door-room',room);doorRoom=room;$('roomLabel').textContent=room;
+      if(!('NDEFReader' in window)){$('setupMessage').textContent='Open this page in Chrome on an Android phone with NFC on';return}
+      try{
+        reader=new NDEFReader();await reader.scan();document.body.classList.add('active');$('setupMessage').textContent='';await requestWakeLock();
+        reader.addEventListener('reading',onReading);reader.addEventListener('readingerror',()=>{$('dEvent').textContent='readingerror';$('dTypes').textContent='—';const sub=$('.idle-sub');const old=sub.textContent;sub.textContent="Couldn't read, hold steady";setTimeout(()=>{if(sub.textContent==="Couldn't read, hold steady")sub.textContent=old},1800)});
+      }catch(error){$('setupMessage').textContent=error&&error.name==='NotAllowedError'?'NFC permission was denied. Allow NFC access and try again.':'Could not start NFC scanning. Check that NFC is on and try again.'}
+    }
+    $('setupForm').addEventListener('submit',event=>{event.preventDefault();startReader()});
+    async function onReading(event){
+      $('dEvent').textContent='reading';$('dSerial').textContent=event.serialNumber||'—';
+      $('dTypes').textContent=Array.from(event.message.records||[],r=>r.recordType).join(', ')||'—';
+      const record=Array.from(event.message.records||[]).find(r=>r.recordType==='text');if(!record)return;
+      let token='';try{token=new TextDecoder(record.encoding||'utf-8').decode(record.data).trim()}catch(_){return}if(!token)return;
+      $('dSuffix').textContent=token.slice(-4);
+      const now=Date.now(),prior=lastRead.get(token)||0;if(now-prior<3000)return;lastRead.set(token,now);
+      if(busy)return;busy=true;
+      let response;
+      try{response=await client.rpc('verify_room_token',{token:token,door_room:doorRoom})}
+      catch(error){busy=false;if(error instanceof TypeError)showResult('info','No connection',3000);else{showResult('denied','Access Denied',3000);try{navigator.vibrate&&navigator.vibrate(600)}catch(_){}playTone(180,.55,false)}return}
+      if(response.error){showResult('denied','Access Denied',3000);try{navigator.vibrate&&navigator.vibrate(600)}catch(_){}playTone(180,.55,false);return}
+      const unlocked=response.data===true || (Array.isArray(response.data)&&response.data[0]===true);
+      if(unlocked){showResult('ok','Room '+doorRoom+' Unlocked',4000);try{navigator.vibrate&&navigator.vibrate(120)}catch(_){}playTone(880,.22,true)}
+      else{showResult('denied','Access Denied',3000);try{navigator.vibrate&&navigator.vibrate(600)}catch(_){}playTone(180,.55,false)}
+    }
+    $('roomCorner').addEventListener('click',()=>{debugTaps++;clearTimeout(tapReset);tapReset=setTimeout(()=>debugTaps=0,1600);if(debugTaps>=5){$('debug').style.display=$('debug').style.display==='block'?'none':'block';debugTaps=0}});
+  </script>
+</body>
+</html>
